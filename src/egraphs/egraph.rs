@@ -174,8 +174,8 @@ impl fmt::Display for Egraph {
             writeln!(f, "\n=== Function Applications ===")?;
             for (func_name, applications) in self.function_maps.iter() {
                 writeln!(f, "  {}: {} applications", func_name, applications.len())?;
-                for (term_id, subterms) in applications {
-                    write!(f, "    {} (", self.get_term(*term_id))?;
+                for (term_id, subterms, generation) in applications {
+                    write!(f, "    {} [gen {}] (", self.get_term(*term_id), generation)?;
                     for subterm in subterms {
                         write!(f, " {}, ", self.get_term(*subterm))?;
                     }
@@ -228,7 +228,11 @@ pub struct Egraph {
     /// this is a list of quantifiers
     pub quantifiers: Vec<Quantifier>,
     /// map from functions (String) -> terms of this function
-    pub function_maps: DeterministicHashMap<String, Vec<(u64, Vec<u64>)>>, // maps a function name to a list of terms that are of that function
+    pub function_maps: DeterministicHashMap<String, Vec<(u64, Vec<u64>, u32)>>, // maps a function name to a list of (term_id, subterm_ids, generation)
+    /// current generation counter for quantifier instantiation depth tracking
+    pub current_generation: u32,
+    /// maximum generation depth for matching (0 means no limit)
+    pub max_generation: u32,
     /// uid for true
     pub true_term: u64,
     /// uid for false
@@ -262,7 +266,7 @@ pub struct Egraph {
 }
 
 impl Egraph {
-    pub fn new(mut context: Context, lazy_dt: bool, ddsmt: bool, eager_skolem: bool) -> Self {
+    pub fn new(mut context: Context, lazy_dt: bool, ddsmt: bool, eager_skolem: bool, max_generation: u32) -> Self {
         let tru = context.get_true();
         let fal = context.get_false();
 
@@ -284,6 +288,8 @@ impl Egraph {
             assertions: vec![],
             quantifiers: vec![],
             function_maps: DeterministicHashMap::default(),
+            current_generation: 0,
+            max_generation,
             true_term: tru.uid(),
             false_term: fal.uid(),
             added_instantiations: HashMap::default(),
@@ -521,7 +527,7 @@ impl Egraph {
             self.function_maps
                 .entry(func.to_string())
                 .or_default()
-                .push((num, subterms_u64));
+                .push((num, subterms_u64, self.current_generation));
         };
 
         // inserting the ite term into the list of functions
@@ -532,7 +538,7 @@ impl Egraph {
             self.function_maps
                 .entry("ite".to_string())
                 .or_default()
-                .push((num, subterms_u64));
+                .push((num, subterms_u64, self.current_generation));
         };
 
         // TODO: inserting the term if it is a quantifier

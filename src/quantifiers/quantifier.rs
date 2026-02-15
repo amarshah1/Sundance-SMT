@@ -37,10 +37,12 @@ pub fn instantiate_quantifiers(
 ) -> Vec<QuantifierInstance> {
     let quantifiers = &egraph.quantifiers.clone();
     let mut instantiations = vec![];
-    debug_println!(24, 0, "Starting a matching round");
+    // increment generation so new terms created this round are tagged with the new generation
+    egraph.current_generation += 1;
+    debug_println!(26, 0, "Starting a matching round (generation {})", egraph.current_generation);
     for quantifier in quantifiers {
         debug_println!(
-            19,
+            26,
             0,
             "We have the quantifier {}",
             egraph.get_term(quantifier.id)
@@ -702,11 +704,27 @@ fn find_assignments_on_term(
     // checks that we don't consider the same set of subterms twice
     let mut considered_function_terms = DeterministicHashSet::default();
 
+    let max_gen = egraph.max_generation;
+    let current_gen = egraph.current_generation;
+
     // note that we need to get the root of the term here,
     // because the input to the function is not necessarily a root
     let term_root = term.map(|t| egraph.find(t));
     debug_println!(16, 0, "For the function {} we have the terms:", func_name);
-    for (i, subterms) in function_terms {
+    for (i, subterms, generation) in function_terms {
+        // skip terms that were created in a generation beyond the limit
+        if (max_gen > 0 && generation > max_gen) || (generation == current_gen) {
+            debug_println!(
+                6,
+                0,
+                "We are skipping the term {} because its generation {} exceeds the limit {}",
+                egraph.get_term(i),
+                generation,
+                max_gen
+            );
+            continue;
+        }
+
         debug_println!(16, 4, "{}", egraph.get_term(i));
         // TODO: the number of terms could potentially grow
         // TODO: this could actually be made more efficient, by maybe considering an egraph with only active terms

@@ -40,4 +40,7 @@ pub struct Args {
     /// Set timeout in seconds (0 means no timeout)
     #[arg(long, default_value_t = 0)]
     pub timeout: u64,
+    /// Maximum generation depth for quantifier instantiation matching (0 means no limit)
+    #[arg(long, default_value_t = 0)]
+    pub max_generation: u32,
 }
