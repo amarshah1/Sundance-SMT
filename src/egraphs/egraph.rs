@@ -237,8 +237,9 @@ pub struct Egraph {
     pub true_term: u64,
     /// uid for false
     pub false_term: u64,
-    /// a list of quantifier instantiations indexed by the uid of the original quantifier (todo: why do we store a mapping from variable names to terms)
-    pub added_instantiations: HashMap<u64, HashSet<DeterministicHashMap<String, Term>>>,
+    /// fingerprints of quantifier instantiations indexed by the uid of the original quantifier.
+    /// Each fingerprint is a Vec<u64> of E-class root uids for the substitution values (in variable name order).
+    pub added_instantiations: HashMap<u64, HashSet<Vec<u64>>>,
     /// this is a list of skolemized terms
     pub added_skolemizations: DeterministicHashSet<u64>,
     /// keeps track of terms created by quantifier instantiation and their predecessors

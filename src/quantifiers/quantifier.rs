@@ -212,24 +212,28 @@ pub fn instantiate_quantifiers(
             debug_println!(7, 0, "We have the following list of assignments:");
             let mut substitutions = vec![];
             for (subs, activation_depth) in list_assignments.iter() {
-                // todo: maybe need to come up with a more efficient representation than adding in subs
-                // but I don't want to add in the substituted term for two reasons: (1) I want to avoid
-                // calling substitute when I don't need to and (2) if a term contains a quantifier, two
-                // equivalent terms will actually be unequal
-                // maybe I eventually want to do something in the match_term function
-                // we are doing a lot of redundant work. It would be nice to have something
+                // Build a fingerprint from the substitution values' uids.
+                // Since we substitute E-class roots (see match_term Local case),
+                // identical fingerprints guarantee identical ground terms.
+                // Note: E-class roots can change between matching rounds (due to
+                // merges from processed assignments), so a previously-cached
+                // fingerprint may become stale and a redundant instantiation may
+                // slip through. This is harmless — the SAT solver just gets a
+                // duplicate clause.
+                // we are still doing some redundant work. It would be nice to have something
                 // like semi-naive evaluation for datalog
+                let fingerprint: Vec<u64> = subs.iter().map(|(_, term)| term.uid()).collect();
+
                 if let Some(set) = egraph.added_instantiations.get(&quantifier.id)
-                    && set.contains(subs)
+                    && set.contains(&fingerprint)
                 {
-                    // println!("Skipping the instantiation {} for {}", t, egraph.get_term(quantifier.id));
                     continue;
                 }
                 egraph
                     .added_instantiations
                     .entry(quantifier.id)
                     .or_default()
-                    .insert(subs.clone());
+                    .insert(fingerprint);
 
                 debug_println!(22, 0, "The body is {}", body);
                 debug_println!(22, 0, "The assignment is");
@@ -609,7 +613,11 @@ pub fn match_term<'a>(
                                 .get_term(term.unwrap())
                                 .get_sort(egraph.context.arena())
                     ); // checking that things are typechecked
-                    assignment.insert(local.symbol.to_string(), egraph.get_term(term.unwrap()));
+                    // Use the E-class root for substitution so that two matches landing
+                    // in the same E-classes produce identical substitution maps, enabling
+                    // fingerprint-based deduplication in added_instantiations.
+                    let root = egraph.find(term.unwrap());
+                    assignment.insert(local.symbol.to_string(), egraph.get_term(root));
 
                     // we cannot just return match_term(*, *, *) because we need to consider the activation depth of the current term
                     // TODO: maybe there is a better way to do this, where we only check the activation depth at the highest level
