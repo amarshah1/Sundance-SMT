@@ -617,7 +617,12 @@ pub fn match_term<'a>(
                     // in the same E-classes produce identical substitution maps, enabling
                     // fingerprint-based deduplication in added_instantiations.
                     let root = egraph.find(term.unwrap());
-                    assignment.insert(local.symbol.to_string(), egraph.get_term(root));
+                    if term.unwrap().get_sort(egraph.context.arena()) == egraph.context.bool_sort() {
+                        assignment.insert(local.symbol.to_string(), egraph.get_term(term.unwrap()));
+                    } else {
+                        assignment.insert(local.symbol.to_string(), egraph.get_term(root));
+                    }
+                    
 
                     // we cannot just return match_term(*, *, *) because we need to consider the activation depth of the current term
                     // TODO: maybe there is a better way to do this, where we only check the activation depth at the highest level
