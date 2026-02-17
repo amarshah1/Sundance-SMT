@@ -49,7 +49,7 @@ jobs:
         os: [ ubuntu-latest, macos-latest ]
         rust: [ stable ]
         features:
-          - ''
+          - 'bundled-z3'
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
