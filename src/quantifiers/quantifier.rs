@@ -17,7 +17,7 @@ use yaspar_ir::ast::ATerm::{
     And, Annotated, App, Constant, Distinct, Eq, Exists, Forall, Global, Implies, Ite, Let, Local,
     Matching, Not, Or,
 };
-use yaspar_ir::ast::{Attribute, FetchSort, HasArena, LetElim, Repr, Term, TermAllocator};
+use yaspar_ir::ast::{Attribute, FetchSort, HasArena, LetElim, ObjectAllocatorExt, Repr, Term, TermAllocator};
 
 #[derive(Debug, Clone)]
 pub enum QuantifierInstance {
@@ -39,12 +39,12 @@ pub fn instantiate_quantifiers(
     let mut instantiations = vec![];
     // increment generation so new terms created this round are tagged with the new generation
     egraph.current_generation += 1;
-    debug_println!(26, 0, "Starting a matching round (generation {})", egraph.current_generation);
+    debug_println!(26, 0, ";Starting a matching round (generation {})", egraph.current_generation);
     for quantifier in quantifiers {
         debug_println!(
             26,
             0,
-            "We have the quantifier {}",
+            ";We have the quantifier {}",
             egraph.get_term(quantifier.id)
         );
         // check if the quantifier is assigned
@@ -616,11 +616,14 @@ pub fn match_term<'a>(
                     // Use the E-class root for substitution so that two matches landing
                     // in the same E-classes produce identical substitution maps, enabling
                     // fingerprint-based deduplication in added_instantiations.
+                    // todo: using the root actually seems to make things way slower
+                    // one explanation is that we are using more complicated terms
+                    // but idk if that really explains it
                     let root = egraph.find(term.unwrap());
-                    if term.unwrap().get_sort(egraph.context.arena()) == egraph.context.bool_sort() {
+                    if egraph.get_term(term.unwrap()).get_sort(egraph.context.arena()) == egraph.context.bool_sort() {
                         assignment.insert(local.symbol.to_string(), egraph.get_term(term.unwrap()));
                     } else {
-                        assignment.insert(local.symbol.to_string(), egraph.get_term(root));
+                        assignment.insert(local.symbol.to_string(), egraph.get_term(term.unwrap()));
                     }
                     
 
