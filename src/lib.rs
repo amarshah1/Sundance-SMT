@@ -13,3 +13,4 @@ pub mod egraphs;
 pub mod preprocess;
 mod proof;
 mod quantifiers;
+pub mod relevancy;

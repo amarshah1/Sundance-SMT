@@ -74,7 +74,7 @@ fn main() -> Result<(), String> {
     assertions.push(true_term.clone());
     assertions.push(not_false_term);
 
-    let mut egraph = Egraph::new(context, args.lazy_dt, args.ddsmt, args.eager_skolem, args.max_generation);
+    let mut egraph = Egraph::new(context, args.lazy_dt, args.ddsmt, args.eager_skolem, args.max_generation, args.relevancy);
 
     egraph.insert_predecessor(&false_term, None, None, false, None);
     egraph.insert_predecessor(&true_term, None, None, false, None);
@@ -86,7 +86,7 @@ fn main() -> Result<(), String> {
 
     let mut nnf_terms = vec![];
     for assert in assertions {
-        debug_println!(22, 0, "We have the assertion {} [{}]", assert, assert.uid());
+        debug_println!(30, 0, "We have the assertion {} [{}]", assert, assert.uid());
 
         // inline the let bindings
         let let_elim_term = assert.let_elim(&mut egraph.context);
@@ -119,6 +119,12 @@ fn main() -> Result<(), String> {
 
         debug_println!(4, 0, "CNF formula: {:?}", cnf_formula);
 
+        // Record the assertion root for relevancy propagation.
+        // The root is the SAT variable for this NNF term's uid.
+        if let Some(&root_var) = egraph.cnf_cache.var_map.get(&nnf_term.uid()) {
+            egraph.relevancy.add_root(root_var);
+        }
+
         prop_skeleton.extend(
             cnf_formula
                 .clone()
@@ -126,6 +132,12 @@ fn main() -> Result<(), String> {
                 .map(|x| x.into_iter().collect::<Vec<_>>()),
         );
     }
+
+    // Flush relevancy rules from CNF cache into the propagator and seed roots.
+    // We pass an empty assignments slice since no SAT assignments exist yet;
+    // propagation from roots will happen once the SAT solver starts assigning.
+    egraph.relevancy.flush_rules(&mut egraph.cnf_cache.relevancy_rules);
+    egraph.relevancy.seed_roots(&[]);
 
     // save the sorts and symbol table for the proof file
     let sorts = egraph.context.expose_sorts().clone();

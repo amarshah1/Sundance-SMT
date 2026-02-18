@@ -128,6 +128,11 @@ impl<'a> ExternalPropagator for CustomExternalPropagator<'a> {
             self.assignments[lit.unsigned_abs() as usize] =
                 ((self.decision_level + 1) as i32) * lit_sign;
 
+            // Propagate relevancy based on the new assignment
+            self.egraph
+                .relevancy
+                .notify_assignment(*lit, &self.assignments);
+
             if self.fixed_literals.contains(lit) {
                 debug_println!(6, 0, "Skipping literal {lit} because it is fixed");
                 continue;
@@ -239,6 +244,7 @@ impl<'a> ExternalPropagator for CustomExternalPropagator<'a> {
                 .resize(2 * self.egraph.predecessor_level.len(), 0);
         }
         self.decision_level += 1;
+        self.egraph.relevancy.new_decision_level();
         debug_println!(
             4,
             0,
@@ -253,7 +259,7 @@ impl<'a> ExternalPropagator for CustomExternalPropagator<'a> {
         debug_println!(
             26,
             0,
-            ";PROPAGATOR: Backtracking from level {} to level {}",
+            "PROPAGATOR: Backtracking from level {} to level {}",
             self.decision_level,
             level
         );
@@ -273,6 +279,9 @@ impl<'a> ExternalPropagator for CustomExternalPropagator<'a> {
                 self.assignments[i] = 0;
             }
         }
+
+        // Backtrack relevancy propagation after assignments are reset
+        self.egraph.relevancy.backtrack(level, &self.assignments);
 
         // TODO: not deactivating for rn, because important terms are getting deactivated
         // deactivate_bits(level, self.egraph);
@@ -595,6 +604,14 @@ impl<'a> ExternalPropagator for CustomExternalPropagator<'a> {
             "Found quantifier instantiations {:?}",
             quantifier_instantiations
         );
+
+        // Quantifier instantiation calls cnf_tseitin on instantiated terms,
+        // which appends new Tseitin rules to cnf_cache.relevancy_rules.
+        // Flush them into the RelevancyPropagator so they participate in
+        // future propagation.
+        self.egraph
+            .relevancy
+            .flush_rules(&mut self.egraph.cnf_cache.relevancy_rules);
 
         if quantifier_instantiations.is_empty() {
             debug_println!(10, 0, "{}", self.egraph);

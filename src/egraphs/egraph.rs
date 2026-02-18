@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::cnf::{CNFCache, CNFConversion, CNFEnv};
+use crate::relevancy::RelevancyPropagator;
 use crate::datatypes::process::DatatypeInfo;
 use crate::egraphs::congruence_closure::union;
 use crate::egraphs::datastructures::{
@@ -264,10 +265,12 @@ pub struct Egraph {
     pub eager_skolem: bool,
     /// store CNF cache
     pub cnf_cache: CNFCache,
+    /// relevancy propagator for filtering quantifier instantiation
+    pub relevancy: RelevancyPropagator,
 }
 
 impl Egraph {
-    pub fn new(mut context: Context, lazy_dt: bool, ddsmt: bool, eager_skolem: bool, max_generation: u32) -> Self {
+    pub fn new(mut context: Context, lazy_dt: bool, ddsmt: bool, eager_skolem: bool, max_generation: u32, relevancy_enabled: bool) -> Self {
         let tru = context.get_true();
         let fal = context.get_false();
 
@@ -306,6 +309,7 @@ impl Egraph {
             ddsmt,
             eager_skolem,
             cnf_cache: Default::default(),
+            relevancy: RelevancyPropagator::new(relevancy_enabled),
         }
     }
 

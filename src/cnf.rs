@@ -1,6 +1,7 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::relevancy::RelevancyRule;
 use sat_interface::{Clause, Formula};
 use std::collections::HashMap;
 use yaspar_ir::ast::{
@@ -25,6 +26,11 @@ pub struct CNFCache {
     pub var_map_reverse: HashMap<i32, u64>,
     pub next_var: i32,
     pub nnf_cache: HashMap<u64, [Option<Term>; 2]>,
+    /// Accumulated relevancy rules from Tseitin encoding, to be flushed
+    /// into the RelevancyPropagator after encoding completes.
+    pub relevancy_rules: Vec<(i32, RelevancyRule)>,
+    /// Assertion root SAT variables (those that get unit clauses).
+    pub relevancy_roots: Vec<i32>,
 }
 
 impl Default for CNFCache {
@@ -40,6 +46,8 @@ impl CNFCache {
             var_map_reverse: HashMap::new(),
             next_var: 1,
             nnf_cache: HashMap::new(),
+            relevancy_rules: Vec::new(),
+            relevancy_roots: Vec::new(),
         }
     }
 }
@@ -255,6 +263,10 @@ impl CNFConversionHelper<CNFEnv<'_>> for Term {
                     let mut nvs: Vec<_> = vs.iter().map(|l| -l).collect();
                     nvs.push(nv);
                     formula.add(Clause::new(nvs));
+                    // Record relevancy rule: nv represents AND(vs)
+                    // Rules for non-root nodes (e.g. inside function args) are harmless
+                    // since propagation only reaches vars reachable from roots.
+                    env.cache.relevancy_rules.push((nv, RelevancyRule::And { children: vs }));
                     nv
                 }
             },
@@ -269,9 +281,11 @@ impl CNFConversionHelper<CNFEnv<'_>> for Term {
                     forward_clause.push(-nv);
                     formula.add(Clause::new(forward_clause));
                     // Backward direction: (a1 ∨ a2 ∨ ... ∨ an) -> x
-                    for v in vs {
+                    for v in vs.clone() {
                         formula.add(Clause::new(vec![-v, nv]))
                     }
+                    // Record relevancy rule: nv represents OR(vs)
+                    env.cache.relevancy_rules.push((nv, RelevancyRule::Or { children: vs }));
                     nv
                 }
             },

@@ -70,6 +70,20 @@ pub fn instantiate_quantifiers(
             continue;
         }
 
+        // Skip quantifiers whose SAT variable is not relevant.
+        // If relevancy filtering is disabled (--relevancy false), is_relevant
+        // always returns true, so this check is a no-op.
+        if !egraph.relevancy.is_relevant(quantifier_literal) {
+            debug_println!(
+                30,
+                0,
+                "RELEVANCY: Skipping irrelevant quantifier {} (lit {})",
+                egraph.get_term(quantifier.id),
+                quantifier_literal
+            );
+            continue;
+        }
+
         // if an odd number of these is true -> XOR true -> skolemize
         // if an even number of these is true -> XOR false -> instantiate
         let quantifier_polarity = (quantifier_assignment > 0)
@@ -137,6 +151,14 @@ pub fn instantiate_quantifiers(
 
             let skolemized_term_literal = egraph.get_lit_from_term(&skolemized_quantifier);
 
+            // Register instantiation edge: if the quantifier is relevant,
+            // the skolemized body should be too.
+            // We use -quantifier_literal because the clause [quantifier_literal, body]
+            // means ¬quantifier_literal ⟹ body. So when -quantifier_literal is the
+            // active polarity (i.e. the quantifier is assigned to make this fire),
+            // the body should become relevant.
+            egraph.relevancy.add_instantiation_edge(-quantifier_literal, skolemized_term_literal, assignments);
+
             let quantifier_implies_skolemization_clause =
                 vec![quantifier_literal, skolemized_term_literal];
             proof_tracker.borrow_mut().add_skolem_clause(
@@ -188,7 +210,7 @@ pub fn instantiate_quantifiers(
             let body = quantifier.body;
             let trigger_term_pairs = multipattern.iter().map(|t| (*t, None)).collect::<Vec<_>>();
 
-            let mut assignments = DeterministicHashMap::default();
+            let mut variable_substitutions = DeterministicHashMap::default();
             debug_println!(12, 0, "after8");
             debug_println!(
                 19,
@@ -198,7 +220,7 @@ pub fn instantiate_quantifiers(
                 trigger_term_pairs
             );
             debug_println!(12, 0, "after9");
-            let list_assignments = match_term(&mut assignments, trigger_term_pairs, egraph);
+            let list_assignments = match_term(&mut variable_substitutions, trigger_term_pairs, egraph);
 
             if list_assignments.is_empty() {
                 debug_println!(
@@ -339,6 +361,13 @@ pub fn instantiate_quantifiers(
                 // basically the final clause from cnf is the top level term
                 // we want to say quantifier => top level term
                 let mut final_clause = clauses.pop().unwrap();
+                assert!(final_clause.len() == 1, "Expected single-literal final clause from cnf_tseitin, got {:?}", final_clause);
+                let body_lit = final_clause[0];
+                assert!(body_lit == egraph.get_lit_from_term(&nnf_term), "Final clause literal should correspond to nnf_term");
+                // Register instantiation edge: clause is [body_lit, quantifier_literal],
+                // meaning ¬quantifier_literal ⟹ body_lit. So -quantifier_literal is
+                // the active polarity that triggers the body becoming relevant.
+                egraph.relevancy.add_instantiation_edge(-quantifier_literal, body_lit, assignments);
                 final_clause.push(quantifier_literal);
                 clauses.push(final_clause);
 

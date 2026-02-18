@@ -43,4 +43,7 @@ pub struct Args {
     /// Maximum generation depth for quantifier instantiation matching (0 means no limit)
     #[arg(long, default_value_t = 0)]
     pub max_generation: u32,
+    /// Enable relevancy filtering for quantifier instantiation
+    #[arg(long, default_value_t = true)]
+    pub relevancy: bool,
 }
