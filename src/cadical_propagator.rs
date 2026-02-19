@@ -102,7 +102,7 @@ impl<'a> CustomExternalPropagator<'a> {
 impl<'a> ExternalPropagator for CustomExternalPropagator<'a> {
     fn notify_assignment(&mut self, lits: &[i32]) {
         debug_println!(
-            7,
+            26,
             0,
             "PROPAGATOR: Processing assignments (level {}): {:?}",
             self.decision_level,

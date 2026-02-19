@@ -75,7 +75,7 @@ pub fn instantiate_quantifiers(
         // always returns true, so this check is a no-op.
         if !egraph.relevancy.is_relevant(quantifier_literal) {
             debug_println!(
-                30,
+                23,
                 0,
                 "RELEVANCY: Skipping irrelevant quantifier {} (lit {})",
                 egraph.get_term(quantifier.id),
@@ -139,6 +139,7 @@ pub fn instantiate_quantifiers(
             // note that from_quantifier is true here
             egraph.insert_predecessor(&skolemized_quantifier, None, None, true, None);
             let clauses = skolemized_quantifier.cnf_tseitin(egraph);
+            egraph.relevancy.flush_rules(&mut egraph.cnf_cache.relevancy_rules);
 
             // learning (not \forall P(x)) => P(c)
             // equivalent to \forall P(x) \/ P(c)
@@ -328,11 +329,11 @@ pub fn instantiate_quantifiers(
                 );
 
                 debug_println!(
-                    7,
+                    26,
                     0,
                     "We have the nnf term {} with id {}",
                     nnf_term,
-                    nnf_term.uid()
+                    nnf_term.uid(),
                 );
 
                 // note we do this after nnf
@@ -342,7 +343,8 @@ pub fn instantiate_quantifiers(
                 egraph.insert_predecessor(&nnf_term, None, None, true, None);
 
                 let cnf_term = nnf_term.cnf_tseitin(egraph);
-                debug_println!(7, 0, "We have the cnf term {:?}", cnf_term);
+                egraph.relevancy.flush_rules(&mut egraph.cnf_cache.relevancy_rules);
+                debug_println!(26, 0, "We have the cnf term {:?} with lit {}", cnf_term, egraph.get_lit_from_term(&nnf_term));
 
                 let mut clauses: Vec<_> = cnf_term
                     .clone()

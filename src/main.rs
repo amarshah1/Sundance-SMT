@@ -86,7 +86,7 @@ fn main() -> Result<(), String> {
 
     let mut nnf_terms = vec![];
     for assert in assertions {
-        debug_println!(30, 0, "We have the assertion {} [{}]", assert, assert.uid());
+        debug_println!(23, 0, "We have the assertion {} [{}]", assert, assert.uid());
 
         // inline the let bindings
         let let_elim_term = assert.let_elim(&mut egraph.context);

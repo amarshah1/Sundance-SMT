@@ -92,7 +92,7 @@ impl RelevancyPropagator {
 
     /// Register a top-level assertion root (always relevant).
     pub fn add_root(&mut self, var: i32) {
-        debug_println!(30, 0, "adding the root {}", var);
+        debug_println!(23, 0, "adding the root {}", var);
         if !self.enabled {
             return;
         }
@@ -119,13 +119,13 @@ impl RelevancyPropagator {
             .push(body_var.abs());
 
         // Eagerly propagate if the source is already relevant and assigned at
-        // the right polarity. This handles level-0 unit clauses that are
-        // assigned once (before this edge existed) and never reassigned.
+        // the right polarity.
         if self.is_relevant_and_assigned_at(quantifier_lit, assignments) {
             if self.mark_relevant(body_var) {
                 self.propagate_children(body_var.abs(), assignments);
             }
             // Track so backtrack() can re-propagate if the body gets unmarked.
+            debug_println!(23, 0, "Adding ({}, {}) to pending_instantiations", quantifier_lit, body_var.abs());
             self.pending_instantiations.push((quantifier_lit, body_var.abs()));
         }
     }
@@ -134,16 +134,32 @@ impl RelevancyPropagator {
     /// set AND is assigned in `assignments` with a polarity matching the sign
     /// of `quantifier_lit`.
     fn is_relevant_and_assigned_at(&self, quantifier_lit: i32, assignments: &[i32]) -> bool {
+        debug_println!(23, 0, "Checking if {} is relevant and assigned at level {}", quantifier_lit, self.decision_level);
         if !self.relevant.contains(&quantifier_lit.abs()) {
+            debug_println!(23, 0, "   not relevant");
             return false;
         }
-        let abs_idx = quantifier_lit.unsigned_abs() as usize;
-        if abs_idx >= assignments.len() || assignments[abs_idx] == 0 {
-            return false;
-        }
-        let assigned_true = assignments[abs_idx] > 0;
-        let signed = if assigned_true { quantifier_lit.abs() } else { -(quantifier_lit.abs()) };
-        signed == quantifier_lit
+        return true
+
+        // todo: we are ignoring polarity issues because we assume if the quantifier is relevant it has to be at 
+        // the right polarity, since if it switches polarity it will go through a phase of
+        // not relevant
+        
+        // let abs_idx = quantifier_lit.unsigned_abs() as usize;
+    
+        // if abs_idx >= assignments.len() || assignments[abs_idx] == 0 {
+        //     debug_println!(23, 0, "   not assigned");
+        //     return false;
+        // }
+
+        // let assigned_true = assignments[abs_idx] > 0;
+        // let signed = if assigned_true { quantifier_lit.abs() } else { -(quantifier_lit.abs()) };
+        // if !(signed == quantifier_lit) {
+        //     debug_println!(23, 0, "   assigned with wrong polarity");
+        // } else {
+        //     debug_println!(23, 0, "   relevant and assigned with correct polarity");
+        // }
+        // signed == quantifier_lit
     }
 
     /// Check whether a SAT variable is relevant.
@@ -158,12 +174,13 @@ impl RelevancyPropagator {
     /// Mark a SAT variable as relevant at the current decision level.
     /// Returns true if it was newly marked (i.e., wasn't already relevant).
     fn mark_relevant(&mut self, var: i32) -> bool {
+        debug_println!(23, 0, "marking {} as relevant at level {}", var, self.decision_level);
         let abs_var = var.abs();
         let newly_inserted = self.relevant.insert(abs_var);
         if newly_inserted {
             self.trail.push((abs_var, self.decision_level));
             debug_println!(
-                30,
+                23,
                 0,
                 "RELEVANCY: Marked var {} as relevant at level {}",
                 abs_var,
@@ -210,10 +227,13 @@ impl RelevancyPropagator {
     /// Propagate relevancy from a variable to its children based on its
     /// assignment and the OR/AND propagation rules. Recurses into children.
     fn propagate_children(&mut self, var: i32, assignments: &[i32]) {
+        debug_println!(23, 0, "Propagating children of var {} at level {}", var, self.decision_level);
         let rule = match self.rules.get(&var) {
             Some(r) => r.clone(),
             None => return, // atom — leaf node, no children
         };
+
+        debug_println!(23, 0, "Found rule for var {}: {:?}", var, rule);
 
         let var_idx = var.unsigned_abs() as usize;
         let assignment = if var_idx < assignments.len() {
@@ -222,10 +242,13 @@ impl RelevancyPropagator {
             0
         };
 
-        if assignment == 0 {
-            // Not yet assigned — propagation will happen later via notify_assignment
-            return;
-        }
+        // todo: this is creating an issue because for quantifier instantiations, the body
+        // is propagating forwards before the quantifier literal is assigned, so we end up marking the body as relevant
+
+        // if assignment == 0 {
+        //     // Not yet assigned — propagation will happen later via notify_assignment
+        //     return;
+        // }
 
         // assignment > 0 means assigned true, < 0 means assigned false
         let assigned_true = assignment > 0;
@@ -254,6 +277,8 @@ impl RelevancyPropagator {
                     if !found_witness {
                         // No child assigned true yet — mark all as relevant
                         // since we can't determine the witness
+                        // todo: why is this not unreachable?
+                        // unreachable!();
                         for &child in children {
                             if self.mark_relevant(child) {
                                 self.propagate_children(child.abs(), assignments);
@@ -296,6 +321,8 @@ impl RelevancyPropagator {
                     }
                     if !found_witness {
                         // No child assigned false yet — mark all as relevant
+                        // todo: why is this not unreachable?
+                        // unreachable!();
                         for &child in children {
                             if self.mark_relevant(child) {
                                 self.propagate_children(child.abs(), assignments);
@@ -344,7 +371,7 @@ impl RelevancyPropagator {
                 if !self.roots.contains(&var) {
                     self.relevant.remove(&var);
                     debug_println!(
-                        7,
+                        23,
                         0,
                         "RELEVANCY: Unmarked var {} (was level {}, backtracking to {})",
                         var,
@@ -357,13 +384,6 @@ impl RelevancyPropagator {
             }
         }
 
-        if level == 0 {
-            // All pending entries are now at level 0 and permanently relevant;
-            // no need to track them for re-propagation anymore.
-            self.pending_instantiations.clear();
-            return;
-        }
-
         // Re-propagate any pending instantiation whose body lost relevancy but
         // whose source quantifier is still relevant and correctly assigned.
         let pending = std::mem::take(&mut self.pending_instantiations);
@@ -372,19 +392,38 @@ impl RelevancyPropagator {
             .filter_map(|(q_lit, body_var)| {
                 if self.is_relevant_and_assigned_at(q_lit, assignments) {
                     // Source still live — re-mark body if it was backtracked away.
+                    debug_println!(23, 0, "remarking {}", body_var);
                     if self.mark_relevant(body_var) {
+                        debug_println!(23, 0, "re-propagating children of {}", body_var);
                         self.propagate_children(body_var, assignments);
                     }
-                    Some((q_lit, body_var)) // keep tracking
+                    if level > 0 {
+                        Some((q_lit, body_var)) // keep tracking
+                    } else {
+                        None
+                    }
                 } else {
+                    debug_println!(23, 0, "   not remarking {}", body_var);
                     None // source gone — discard
                 }
             })
             .collect();
+
+        // not necessary because we take care of it earlier
+        // if level == 0 {
+        //     // All pending entries are now at level 0 and permanently relevant;
+        //     // no need to track them for re-propagation anymore.
+        //     self.pending_instantiations.clear();
+        //     return;
+        // }
     }
 
     /// Flush accumulated rules from the CNF cache into the propagator.
     pub fn flush_rules(&mut self, rules: &mut Vec<(i32, RelevancyRule)>) {
+        debug_println!(23, 0, "Flushing {} relevancy rules into propagator", rules.len());
+        for rule in rules.iter() {
+            debug_println!(23, 0, "Flushing rule for var {}: {:?}", rule.0, rule.1);
+        }
         if !self.enabled {
             rules.clear();
             return;
