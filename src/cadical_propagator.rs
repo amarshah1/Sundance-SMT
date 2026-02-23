@@ -102,7 +102,7 @@ impl<'a> CustomExternalPropagator<'a> {
 impl<'a> ExternalPropagator for CustomExternalPropagator<'a> {
     fn notify_assignment(&mut self, lits: &[i32]) {
         debug_println!(
-            26,
+            28,
             0,
             "PROPAGATOR: Processing assignments (level {}): {:?}",
             self.decision_level,
@@ -257,12 +257,13 @@ impl<'a> ExternalPropagator for CustomExternalPropagator<'a> {
 
     fn notify_backtrack(&mut self, level: usize) {
         debug_println!(
-            26,
+            27,
             0,
             "PROPAGATOR: Backtracking from level {} to level {}",
             self.decision_level,
             level
         );
+        debug_println!(27, 0, "{}", self.egraph);
         debug_println!(
             4,
             1,
@@ -319,9 +320,9 @@ impl<'a> ExternalPropagator for CustomExternalPropagator<'a> {
         );
         // TODO: right now we are assuming only fixed literals can be assigned at level 0
         while keep_backtracking(&self.egraph.proof_forest_backtrack_stack, level) {
-            let (_, backtrack_equality, y, y_root) =
+            let (level, backtrack_equality, y, y_root) =
                 self.egraph.proof_forest_backtrack_stack.pop().unwrap();
-            debug_println!(16, 1, "Backtracking equality: {:?}", backtrack_equality);
+            debug_println!(27, 1, "Backtracking equality [level {}]: {:?}", level, backtrack_equality);
             proof_forest_backtrack(backtrack_equality, y, y_root, self.egraph)
         }
 
@@ -343,6 +344,7 @@ impl<'a> ExternalPropagator for CustomExternalPropagator<'a> {
                 .collect::<Vec<_>>()
         );
 
+        // note that this old implementation does not work because it messes up the
         // TODO: have to clone here which is really bad
         for (term_num, (equality, term_parent_original, new_equality, original_y)) in
             self.egraph.from_quantifier_backtrack_set.clone().iter()
@@ -452,7 +454,7 @@ impl<'a> ExternalPropagator for CustomExternalPropagator<'a> {
 
     fn cb_check_found_model(&mut self, model: &[i32]) -> bool {
         debug_println!(
-            24,
+            27,
             0,
             "PROPAGATOR: Checking model: {:?} [{:?}]",
             model,
@@ -478,7 +480,7 @@ impl<'a> ExternalPropagator for CustomExternalPropagator<'a> {
         for term in model {
             let (u64_val, polarity) = self.egraph.get_u64_from_lit_with_polarity(*term);
             debug_println!(
-                24,
+                27,
                 4,
                 "{} [lit: {}] [u64: {} with polarity {}]",
                 self.egraph.get_term_from_lit(*term),
@@ -487,7 +489,7 @@ impl<'a> ExternalPropagator for CustomExternalPropagator<'a> {
                 polarity
             );
         }
-        debug_println!(16, 0, "{}", self.egraph);
+        debug_println!(27, 0, "{}", self.egraph);
 
         // Check arithmetic consistency before instantiating quantifiers
         debug_println!(21, 0, "Starting arithmetic check",);
@@ -520,7 +522,7 @@ impl<'a> ExternalPropagator for CustomExternalPropagator<'a> {
 
                         if let Some(term) = nelson_oppen_clause_pair(*pair.0, *pair.1, self.egraph)
                         {
-                            debug_println!(25, 0, "adding in the nelson oppen term {}", term);
+                            debug_println!(27, 0, "adding in the nelson oppen term {}", term);
                             let term_nnf = term.nnf(self.egraph);
                             // println!("we have the term {:?}", term);
                             self.egraph

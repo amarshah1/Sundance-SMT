@@ -44,6 +44,6 @@ pub struct Args {
     #[arg(long, default_value_t = 0)]
     pub max_generation: u32,
     /// Enable relevancy filtering for quantifier instantiation
-    #[arg(long, default_value_t = true)]
+    #[arg(long, default_value_t = false)]
     pub relevancy: bool,
 }

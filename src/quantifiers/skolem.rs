@@ -32,7 +32,7 @@ pub fn skolemize(term: &Term, context: &mut Context, polarity: bool) -> (Term, V
                 for var_binding in var_bindings {
                     let skolem_symbol = context.fresh_var("skolem-variable");
                     debug_println!(
-                        26,
+                        28,
                         0,
                         "(declare-const {} {})",
                         skolem_symbol,
@@ -82,7 +82,7 @@ pub fn skolemize(term: &Term, context: &mut Context, polarity: bool) -> (Term, V
                 for var_binding in var_bindings {
                     let skolem_symbol = context.fresh_var("skolem-variable");
                     debug_println!(
-                        26,
+                        28,
                         0,
                         "(declare-const {} {})",
                         skolem_symbol,

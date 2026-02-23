@@ -39,10 +39,10 @@ pub fn instantiate_quantifiers(
     let mut instantiations = vec![];
     // increment generation so new terms created this round are tagged with the new generation
     egraph.current_generation += 1;
-    debug_println!(26, 0, ";Starting a matching round (generation {})", egraph.current_generation);
+    debug_println!(28, 0, ";Starting a matching round (generation {})", egraph.current_generation);
     for quantifier in quantifiers {
         debug_println!(
-            26,
+            28,
             0,
             ";We have the quantifier {}",
             egraph.get_term(quantifier.id)
@@ -127,7 +127,7 @@ pub fn instantiate_quantifiers(
             let additional_constraints =
                 check_for_function_bool(&skolemized_quantifier, egraph, true);
             debug_println!(19, 0, "we are skolemizing {}", term);
-            debug_println!(26, 0, "(assert {})", skolemized_quantifier);
+            debug_println!(28, 0, "(assert {})", skolemized_quantifier);
             debug_println!(
                 24,
                 8,
@@ -319,7 +319,7 @@ pub fn instantiate_quantifiers(
 
                 let nnf_term = let_elim_term.nnf(egraph);
 
-                debug_println!(26, 4, "(assert {})", nnf_term.clone());
+                debug_println!(28, 4, "(assert {})", nnf_term.clone());
                 debug_println!(
                     24,
                     8,
@@ -329,7 +329,7 @@ pub fn instantiate_quantifiers(
                 );
 
                 debug_println!(
-                    26,
+                    28,
                     0,
                     "We have the nnf term {} with id {}",
                     nnf_term,
@@ -344,7 +344,7 @@ pub fn instantiate_quantifiers(
 
                 let cnf_term = nnf_term.cnf_tseitin(egraph);
                 egraph.relevancy.flush_rules(&mut egraph.cnf_cache.relevancy_rules);
-                debug_println!(26, 0, "We have the cnf term {:?} with lit {}", cnf_term, egraph.get_lit_from_term(&nnf_term));
+                debug_println!(28, 0, "We have the cnf term {:?} with lit {}", cnf_term, egraph.get_lit_from_term(&nnf_term));
 
                 let mut clauses: Vec<_> = cnf_term
                     .clone()

@@ -146,7 +146,7 @@ pub fn process_assignment(
                             .into_iter()
                             .map(|x| x.into_iter().collect::<Vec<_>>())
                             .collect();
-                        debug_println!(25, 10, "(assert {})", or_not_tester_not_term,);
+                        debug_println!(27, 10, "(assert {})", or_not_tester_not_term,);
                         debug_println!(12, 2, "This gives us {:?}", tester_cnf);
                         Some(tester_cnf)
                     }
@@ -182,9 +182,9 @@ pub fn process_assignment(
 
                         // have the simple_sorted id for the global case and the simple id for the appp case
                         let ctor_app = if selector_apps.is_empty() {
-                            let ctor_id = QualifiedIdentifier::simple_sorted(
+                            let ctor_id = QualifiedIdentifier::simple(
                                 ctor_sym.clone(),
-                                ctor_info.datatype_sort.clone(),
+                                // ctor_info.datatype_sort.clone(),
                             ); // todo: not sure if this is the right was to do it, gets printed out as (as ctor ctor) -> I think it doesnt make a difference
                             egraph
                                 .context
@@ -222,7 +222,7 @@ pub fn process_assignment(
                         let eq_clause = eq_cnf.0[0].0.clone();
                         assert_eq!(eq_clause.len(), 1);
                         let eq_lit = eq_clause[0];
-                        debug_println!(25, 10, "(assert (=> {} {}))", term, eq);
+                        debug_println!(27, 10, "(assert ('=> {} {}))", term, eq);
 
                         additional_constraints.push(vec![-term_lit, eq_lit]);
 
@@ -755,9 +755,9 @@ pub fn union(
     debug_println!(6, 1, "{}", egraph);
     debug_println!(6, 0, "before1");
     debug_println!(
-        22,
+        27,
         1,
-        "Unioning vertices [{}] {}  and [{}] {}  (roots: {} [{}] and {} [{}]) at level {} with {}",
+        "Unioning vertices [{}] {}  and [{}] {}  (roots: {} [{}] and {} [{}]) at level {} with {} and from_quantifier {}",
         x,
         egraph.get_term(x),
         y,
@@ -767,7 +767,8 @@ pub fn union(
         y_root,
         egraph.get_term(y_root),
         level,
-        proof_parent
+        proof_parent,
+        from_quantifier
     );
     debug_println!(11, 0, "{}", egraph);
     assert_eq!(
@@ -780,7 +781,7 @@ pub fn union(
 
     if x_root == y_root {
         debug_println!(
-            16,
+            27,
             2,
             "{} and {} are already in the same equivalence class",
             egraph.get_term(x),
@@ -846,7 +847,7 @@ pub fn union(
     }
 
     debug_println!(
-        16,
+        27,
         2,
         "Making {} the root of its equivalence class [previously was {}]",
         egraph.get_term(y),
@@ -1075,7 +1076,7 @@ fn union_predecessors(
     from_quantifier: bool,
 ) -> Option<Vec<Vec<i32>>> {
     debug_println!(
-        11,
+        27,
         1,
         "Unioning predecessors of {} [{}, Predecessors: {}] and {} [{}, Predecessors: {}]",
         egraph.get_term(u),
@@ -1424,7 +1425,7 @@ pub fn proof_forest_backtrack(
     assert_eq!(egraph.find(*child), egraph.find(*parent));
 
     debug_println!(
-        16,
+        27,
         0,
         "Backtracking on {} with child {} and parent {} and y_term {}",
         equality,
@@ -1501,7 +1502,7 @@ pub fn proof_forest_backtrack(
 
     // when backtracking undo the make_root from union
     debug_println!(
-        16,
+        27,
         0,
         "Making {} the root on a backtrack",
         egraph.get_term(y)

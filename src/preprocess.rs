@@ -279,7 +279,7 @@ fn find_datatype_axioms(
                     .into_iter()
                     .map(|x| x.into_iter().collect::<Vec<_>>())
                     .collect::<Vec<_>>();
-                debug_println!(25, 10, "(assert {})", tester_app);
+                debug_println!(27, 10, "(assert {})", tester_app);
                 vector.extend(tester_app_cnf);
             }
             _ => {}
@@ -294,7 +294,7 @@ fn find_datatype_axioms(
         egraph.context.or(tester_apps)
     };
     debug_println!(12, 0, "TESTER OR CASE");
-    debug_println!(25, 10, "(assert {})", tester_or);
+    debug_println!(27, 10, "(assert {})", tester_or);
     egraph.insert_predecessor(&tester_or, None, None, from_quantifier, None);
     // Add the tester to CNF processing
     // let tester_cnf = &tester_app.cnf_tseitin(&mut *egraph);
@@ -341,9 +341,9 @@ fn find_datatype_axioms(
 
             // this needs to be a variable if ctor talks in no arguments
             let ctor_app = if selectors_apps.is_empty() {
-                let ctor_id = QualifiedIdentifier::simple_sorted(
+                let ctor_id = QualifiedIdentifier::simple(
                     ctor_symbol,
-                    ctor_info.datatype_sort.clone(),
+                    // ctor_info.datatype_sort.clone(),
                 ); // todo: not sure if this is the right was to do it, gets printed out as (as ctor ctor) -> I think it doesnt make a difference
                 egraph
                     .context
@@ -367,7 +367,7 @@ fn find_datatype_axioms(
 
             let eq = egraph.context.eq(term.clone(), ctor_app);
             let imp = egraph.context.implies(vec![tester_app], eq);
-            debug_println!(25, 10, "(assert {})", imp);
+            debug_println!(27, 10, "(assert {})", imp);
             let imp_nnf = imp.nnf(egraph);
             egraph.insert_predecessor(&imp_nnf, None, None, false, None);
             let imp_cnf = imp.cnf_tseitin(egraph);
@@ -415,7 +415,7 @@ fn find_datatype_axioms(
                 Some(sel_sort),
             );
             let sel_eq = egraph.context.eq(sel_app.clone(), sel_term.clone());
-            debug_println!(25, 10, "(assert {})", sel_eq);
+            debug_println!(27, 10, "(assert {})", sel_eq);
             debug_println!(14 - 3, 0, "adding in {}", sel_eq);
             let sel_eq_nnf = sel_eq.nnf(egraph);
             egraph.insert_predecessor(&sel_eq_nnf, None, None, false, None);
