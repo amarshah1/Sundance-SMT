@@ -46,4 +46,7 @@ pub struct Args {
     /// Enable relevancy filtering for quantifier instantiation
     #[arg(long, default_value_t = false)]
     pub relevancy: bool,
+    /// Enable forgetful backtrack: delete QI-created terms/clauses on backtrack (except those used in conflict)
+    #[arg(long, default_value_t = true)]
+    pub forgetful_backtrack: bool,
 }

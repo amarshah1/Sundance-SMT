@@ -267,10 +267,16 @@ pub struct Egraph {
     pub cnf_cache: CNFCache,
     /// relevancy propagator for filtering quantifier instantiation
     pub relevancy: RelevancyPropagator,
+    /// user flag for whether to delete QI-created terms/clauses on backtrack
+    pub forgetful_backtrack: bool,
+    /// for forgetful backtrack: term UIDs created by QI, keyed by generation
+    pub qi_terms_by_generation: HashMap<u32, Vec<u64>>,
+    /// for forgetful backtrack: maps each QI generation to the decision level at which it was created
+    pub qi_generation_to_level: HashMap<u32, usize>,
 }
 
 impl Egraph {
-    pub fn new(mut context: Context, lazy_dt: bool, ddsmt: bool, eager_skolem: bool, max_generation: u32, relevancy_enabled: bool) -> Self {
+    pub fn new(mut context: Context, lazy_dt: bool, ddsmt: bool, eager_skolem: bool, max_generation: u32, relevancy_enabled: bool, forgetful_backtrack: bool) -> Self {
         let tru = context.get_true();
         let fal = context.get_false();
 
@@ -310,6 +316,9 @@ impl Egraph {
             eager_skolem,
             cnf_cache: Default::default(),
             relevancy: RelevancyPropagator::new(relevancy_enabled),
+            forgetful_backtrack,
+            qi_terms_by_generation: HashMap::default(),
+            qi_generation_to_level: HashMap::default(),
         }
     }
 
@@ -464,6 +473,14 @@ impl Egraph {
         // otherwise, we can add the term
         debug_println!(22, 0, "Adding {} into with num {} terms list", term, num);
         self.terms_list[num as usize] = TermOption::Some(term.clone());
+
+        // track term UIDs created by QI for forgetful backtrack
+        if self.forgetful_backtrack && self.current_generation > 0 {
+            self.qi_terms_by_generation
+                .entry(self.current_generation)
+                .or_default()
+                .push(num);
+        }
 
         // if the term is an ITE where the boolean is true or false, then we need to merge immediately
         // todo: I don't know if this is actually necessary (also these )
@@ -765,6 +782,85 @@ impl Egraph {
                     break;
                 }
             }
+        }
+    }
+
+    /// For forgetful backtrack: remove QI-created terms (from unprotected generations) from
+    /// function_maps and predecessors_created_by_quantifiers.
+    ///
+    /// A generation G is "protected" if any literal from its QI clauses is still assigned
+    /// after the backtrack (passed in via `protected_generations`). Protected generations
+    /// and any generation created at level ≤ `level` are left intact.
+    pub fn forget_qi_terms_above_level(
+        &mut self,
+        level: usize,
+        protected_generations: &HashSet<u32>,
+    ) {
+        // collect generations that should be deleted
+        let mut generations_to_delete: Vec<u32> = Vec::new();
+        for (generation, generation_level) in self.qi_generation_to_level.iter() {
+            if *generation_level > level && !protected_generations.contains(generation) {
+                generations_to_delete.push(*generation);
+            }
+        }
+
+        if generations_to_delete.is_empty() {
+            return;
+        }
+
+        // collect all term UIDs to delete
+        let mut terms_to_delete: HashSet<u64> = HashSet::new();
+        for generation in &generations_to_delete {
+            if let Some(uids) = self.qi_terms_by_generation.get(generation) {
+                for uid in uids {
+                    terms_to_delete.insert(*uid);
+                }
+            }
+        }
+
+        debug_println!(
+            16,
+            0,
+            "[FORGETFUL_BACKTRACK] Deleting {} terms from {} generations (backtrack to level {})",
+            terms_to_delete.len(),
+            generations_to_delete.len(),
+            level
+        );
+
+        // remove from function_maps
+        for entries in self.function_maps.values_mut() {
+            entries.retain(|entry| !terms_to_delete.contains(&entry.0));
+        }
+
+        // remove from predecessors_created_by_quantifiers
+        let preds_to_remove: Vec<u64> = self
+            .predecessors_created_by_quantifiers
+            .keys()
+            .filter(|uid| terms_to_delete.contains(*uid))
+            .copied()
+            .collect();
+        for uid in preds_to_remove {
+            self.predecessors_created_by_quantifiers.remove(&uid);
+        }
+
+        // clear added_instantiations fingerprints that reference deleted term UIDs
+        let mut quants_to_remove: Vec<u64> = Vec::new();
+        for (quant_id, fingerprints) in self.added_instantiations.iter_mut() {
+            fingerprints.retain(|fp| {
+                !fp.iter().any(|uid| terms_to_delete.contains(uid))
+            });
+            if fingerprints.is_empty() {
+                quants_to_remove.push(*quant_id);
+            }
+        }
+        for quant_id in quants_to_remove {
+            self.added_instantiations.remove(&quant_id);
+        }
+
+        // clean up tracking structures
+        for generation in &generations_to_delete {
+            self.qi_terms_by_generation.remove(generation);
+            self.qi_generation_to_level.remove(generation);
         }
     }
 

@@ -39,6 +39,10 @@ pub struct CustomExternalPropagator<'a> {
     pub decision_level: usize,
     pub egraph: &'a mut Egraph,
     pub disequalities: RefCell<Vec<Vec<i32>>>, // might be paying a bit of overhead for RefCell
+    /// parallel to disequalities: true = this clause came from QI, false = theory conflict
+    pub qi_clause_flags: RefCell<Vec<bool>>,
+    /// for forgetful backtrack: QI clause literals grouped by QI generation
+    pub qi_clauses_by_generation: std::collections::HashMap<u32, Vec<Vec<i32>>>,
     pub fixed_literals: DeterministicHashSet<i32>,
     pub proof_tracker: Rc<RefCell<SMTProofTracker>>,
     pub assignments: Vec<i32>, // maps abs(literal) -> (decision level assigned + 1) * sgn(literal)
@@ -213,6 +217,7 @@ impl<'a> ExternalPropagator for CustomExternalPropagator<'a> {
                     //     .add_theory_clause(shrunk_constraint.clone(), theory_reason);
 
                     self.disequalities.borrow_mut().push(shrunk_constraint);
+                    self.qi_clause_flags.borrow_mut().push(false); // theory conflict, not QI
                     debug_println!(
                         14 - 3,
                         0,
@@ -449,6 +454,42 @@ impl<'a> ExternalPropagator for CustomExternalPropagator<'a> {
             self.egraph.union_to_eclass = DeterministicHashSet::new();
         }
 
+        // forgetful backtrack: delete QI-created terms and clauses that are no longer useful
+        if self.egraph.forgetful_backtrack {
+            // assignments have already been reset above; literals still assigned are at level ≤ target
+            // a generation is "protected" if any of its QI clause literals are still assigned
+            let mut protected_generations = std::collections::HashSet::<u32>::new();
+            let mut generations_to_check: Vec<u32> = Vec::new();
+            for (generation, generation_level) in self.egraph.qi_generation_to_level.iter() {
+                if *generation_level > level {
+                    generations_to_check.push(*generation);
+                }
+            }
+            for generation in &generations_to_check {
+                if let Some(clauses) = self.qi_clauses_by_generation.get(generation) {
+                    'outer: for clause in clauses {
+                        for lit in clause {
+                            let abs_lit = lit.abs() as usize;
+                            if abs_lit < self.assignments.len() && self.assignments[abs_lit] != 0 {
+                                protected_generations.insert(*generation);
+                                break 'outer;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // remove non-protected QI-created terms from the egraph
+            self.egraph.forget_qi_terms_above_level(level, &protected_generations);
+
+            // drop qi_clauses_by_generation entries that were cleaned up
+            for generation in &generations_to_check {
+                if !protected_generations.contains(generation) {
+                    self.qi_clauses_by_generation.remove(generation);
+                }
+            }
+        }
+
         debug_println!(11, 0, "{}", self.egraph);
     }
 
@@ -505,6 +546,7 @@ impl<'a> ExternalPropagator for CustomExternalPropagator<'a> {
                     );
                     // let negated_arithmetic_literals = arithmetic_literals.iter().map(|x| -x).collect();
                     self.disequalities.borrow_mut().push(arithmetic_literals);
+                    self.qi_clause_flags.borrow_mut().push(false); // arithmetic conflict, not QI
                     return false;
                 }
             }
@@ -535,6 +577,7 @@ impl<'a> ExternalPropagator for CustomExternalPropagator<'a> {
                                     self.add_lit_to_proof_tracker(*lit);
                                 }
                                 self.disequalities.borrow_mut().push(clause.0.clone());
+                                self.qi_clause_flags.borrow_mut().push(false); // Nelson-Oppen, not QI
                             }
                         }
                     }
@@ -594,6 +637,10 @@ impl<'a> ExternalPropagator for CustomExternalPropagator<'a> {
         }
 
         debug_println!(11, 0, "Starting quantifier instantiations");
+        // record generation-to-level mapping before instantiation increments the generation
+        let gen_before = self.egraph.current_generation;
+        let qi_level = self.decision_level;
+
         let quantifier_instantiations = instantiate_quantifiers(
             self.egraph,
             &self.proof_tracker,
@@ -606,6 +653,12 @@ impl<'a> ExternalPropagator for CustomExternalPropagator<'a> {
             "Found quantifier instantiations {:?}",
             quantifier_instantiations
         );
+
+        // record the new generation created by this QI round for forgetful backtrack
+        let gen_after = self.egraph.current_generation;
+        if self.egraph.forgetful_backtrack && gen_after > gen_before {
+            self.egraph.qi_generation_to_level.insert(gen_after, qi_level);
+        }
 
         // Quantifier instantiation calls cnf_tseitin on instantiated terms,
         // which appends new Tseitin rules to cnf_cache.relevancy_rules.
@@ -627,14 +680,20 @@ impl<'a> ExternalPropagator for CustomExternalPropagator<'a> {
         for instantiation in &quantifier_instantiations {
             match instantiation {
                 Instantiation { clause, .. } => {
-                    // , skolemized
                     for lit in clause {
                         self.add_observed_variable(*lit);
                         self.add_lit_to_proof_tracker(*lit);
                     }
 
-                    // TODO: since I am adding literals, I might have to add them as observed literals
                     self.disequalities.borrow_mut().push(clause.clone());
+                    // mark as QI clause and record for forgetful backtrack
+                    self.qi_clause_flags.borrow_mut().push(true);
+                    if self.egraph.forgetful_backtrack && gen_after > gen_before {
+                        self.qi_clauses_by_generation
+                            .entry(gen_after)
+                            .or_default()
+                            .push(clause.clone());
+                    }
                 }
                 Skolemization { clause } => {
                     for lit in clause {
@@ -643,6 +702,14 @@ impl<'a> ExternalPropagator for CustomExternalPropagator<'a> {
                     }
 
                     self.disequalities.borrow_mut().push(clause.clone());
+                    // mark as QI clause and record for forgetful backtrack
+                    self.qi_clause_flags.borrow_mut().push(true);
+                    if self.egraph.forgetful_backtrack && gen_after > gen_before {
+                        self.qi_clauses_by_generation
+                            .entry(gen_after)
+                            .or_default()
+                            .push(clause.clone());
+                    }
                 }
             }
         }
@@ -683,24 +750,30 @@ impl<'a> ExternalPropagator for CustomExternalPropagator<'a> {
             "PROPAGATOR: Checking for external clauses (forgettable: {})",
             is_forgettable
         );
-        // For now, no external clauses
         if (*self.disequalities.borrow_mut()).is_empty() {
             false
         } else {
-            // this is basically saying that the clause is not forgettable; cvc5 also does false
-            *is_forgettable = false;
+            // For forgetful backtrack: mark QI clauses as forgettable so CaDiCaL can GC them
+            // unless they are locked (used as a reason for a surviving propagation, which
+            // includes conflict-clause literals). Theory-conflict clauses stay irredundant.
+            if self.egraph.forgetful_backtrack {
+                let flags = self.qi_clause_flags.borrow();
+                *is_forgettable = flags.last().copied().unwrap_or(false);
+            } else {
+                *is_forgettable = false;
+            }
             debug_println!(
                 4,
                 0,
-                "In cb_has_external_clause: We have the following disequalities: {:?}",
-                self.disequalities.borrow()[0]
+                "In cb_has_external_clause: We have the following disequalities: {:?} (forgettable: {})",
+                self.disequalities.borrow()[0],
+                is_forgettable
             );
             true
         }
     }
 
     fn cb_add_external_clause_lit(&mut self) -> i32 {
-        // For now, no external clauses
         let mut v = self.disequalities.borrow_mut();
         assert!(!v.is_empty());
         debug_println!(4, 0, "We start with the following disequalities: {:?}", v);
@@ -708,6 +781,8 @@ impl<'a> ExternalPropagator for CustomExternalPropagator<'a> {
         debug_println!(11, 0, "We have the next clause {:?}", v[last_index]);
         let literal = if v[last_index].is_empty() {
             v.pop();
+            // clause is complete (returned 0 terminator): pop the corresponding flag
+            self.qi_clause_flags.borrow_mut().pop();
             0
         } else {
             v[last_index].pop().unwrap()
