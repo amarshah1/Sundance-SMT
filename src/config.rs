@@ -49,4 +49,10 @@ pub struct Args {
     /// Enable forgetful backtrack: delete QI-created terms/clauses on backtrack (except those used in conflict)
     #[arg(long, default_value_t = true)]
     pub forgetful_backtrack: bool,
+    /// Fire at most one quantifier instantiation per QI round (cycles through a queue)
+    #[arg(long, default_value_t = false)]
+    pub qi_one_at_a_time: bool,
+    /// When adding new quantifiers to the QI queue, place them at the front instead of the back
+    #[arg(long, default_value_t = false)]
+    pub qi_new_to_front: bool,
 }

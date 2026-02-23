@@ -271,10 +271,19 @@ pub struct Egraph {
     pub forgetful_backtrack: bool,
     /// for forgetful backtrack: buffer of term UIDs inserted during the current QI instantiation
     pub qi_pending_term_uids: Vec<u64>,
+    /// fire at most one quantifier per QI round, cycling through a queue
+    pub qi_one_at_a_time: bool,
+    /// when true, new quantifiers are tried before existing ones in the next QI round
+    pub qi_new_to_front: bool,
+    /// round-robin queue of indices into `self.quantifiers` for one-at-a-time mode
+    pub qi_queue: std::collections::VecDeque<usize>,
+    /// deferred front-insertions: new quantifiers added while instantiate_quantifiers is running;
+    /// flushed to the front of qi_queue at the end of each instantiate_quantifiers call
+    pub qi_pending_front: Vec<usize>,
 }
 
 impl Egraph {
-    pub fn new(mut context: Context, lazy_dt: bool, ddsmt: bool, eager_skolem: bool, max_generation: u32, relevancy_enabled: bool, forgetful_backtrack: bool) -> Self {
+    pub fn new(mut context: Context, lazy_dt: bool, ddsmt: bool, eager_skolem: bool, max_generation: u32, relevancy_enabled: bool, forgetful_backtrack: bool, qi_one_at_a_time: bool, qi_new_to_front: bool) -> Self {
         let tru = context.get_true();
         let fal = context.get_false();
 
@@ -316,6 +325,10 @@ impl Egraph {
             relevancy: RelevancyPropagator::new(relevancy_enabled),
             forgetful_backtrack,
             qi_pending_term_uids: Vec::new(),
+            qi_one_at_a_time,
+            qi_new_to_front,
+            qi_queue: std::collections::VecDeque::new(),
+            qi_pending_front: Vec::new(),
         }
     }
 
@@ -601,6 +614,18 @@ impl Egraph {
                     polarity,
                     skolemized: false,
                 });
+                if self.qi_one_at_a_time {
+                    let new_idx = self.quantifiers.len() - 1;
+                    if self.qi_new_to_front {
+                        // Buffer the insertion; it will be flushed to the actual front of
+                        // qi_queue at the end of the current instantiate_quantifiers call.
+                        // This avoids corrupting the in-progress pop_front/push_back rotation.
+                        self.qi_pending_front.push(new_idx);
+                    } else {
+                        // Back-insertions are safe to do immediately (we only pop from front).
+                        self.qi_queue.push_back(new_idx);
+                    }
+                }
             } else {
                 panic!("We have a quantifier {} without an annotation", term)
             }

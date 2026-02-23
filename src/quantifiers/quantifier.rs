@@ -35,12 +35,45 @@ pub fn instantiate_quantifiers(
     assignments: &Vec<i32>,
     level: usize,
 ) -> Vec<QuantifierInstance> {
-    let quantifiers = &egraph.quantifiers.clone();
+    let quantifiers = egraph.quantifiers.clone();
     let mut instantiations = vec![];
     // increment generation so new terms created this round are tagged with the new generation
     egraph.current_generation += 1;
     debug_println!(28, 0, ";Starting a matching round (generation {})", egraph.current_generation);
-    for quantifier in quantifiers {
+
+    // Build the ordered list of quantifier indices to try this round.
+    // In one-at-a-time mode we snapshot the current queue; otherwise we try all in order.
+    // We snapshot before the loop so that quantifiers added during processing
+    // (e.g. from nested foralls) don't corrupt the iteration order.
+    //
+    // First, flush any quantifiers that were deferred into qi_pending_front (e.g., those
+    // added during preprocessing before instantiate_quantifiers was first called, or those
+    // added during the previous round's loop). This ensures the queue is up-to-date before
+    // we take the snapshot.
+    if egraph.qi_one_at_a_time && !egraph.qi_pending_front.is_empty() {
+        for idx in egraph.qi_pending_front.drain(..).rev() {
+            egraph.qi_queue.push_front(idx);
+        }
+    }
+    let indices: Vec<usize> = if egraph.qi_one_at_a_time {
+        egraph.qi_queue.iter().copied().collect()
+    } else {
+        (0..quantifiers.len()).collect()
+    };
+
+    for &qi_idx in &indices {
+        let instantiations_before = instantiations.len();
+
+        // In one-at-a-time mode: rotate this quantifier to the back of the queue.
+        // We use the snapshotted qi_idx so this is always correct regardless of any
+        // new quantifiers added to qi_pending_front during processing.
+        if egraph.qi_one_at_a_time {
+            egraph.qi_queue.pop_front();
+            egraph.qi_queue.push_back(qi_idx);
+        }
+
+        let quantifier = &quantifiers[qi_idx];
+        {
         debug_println!(
             28,
             0,
@@ -401,7 +434,25 @@ pub fn instantiate_quantifiers(
                 }
             }
         }
+        } // end inner block for this quantifier
+
+        // In one-at-a-time mode: stop after the first quantifier that produced instantiations.
+        // The queue has already been rotated (processed quantifier is now at the back),
+        // so the next call will start with the following quantifier.
+        if egraph.qi_one_at_a_time && instantiations.len() > instantiations_before {
+            break;
+        }
     }
+
+    // Flush any new quantifiers that were buffered for front-insertion during the loop.
+    // We do this after the loop so the in-progress pop_front/push_back rotation above
+    // is never affected by concurrent front-insertions.
+    if egraph.qi_one_at_a_time && !egraph.qi_pending_front.is_empty() {
+        for idx in egraph.qi_pending_front.drain(..).rev() {
+            egraph.qi_queue.push_front(idx);
+        }
+    }
+
     instantiations
 }
 

@@ -74,7 +74,7 @@ fn main() -> Result<(), String> {
     assertions.push(true_term.clone());
     assertions.push(not_false_term);
 
-    let mut egraph = Egraph::new(context, args.lazy_dt, args.ddsmt, args.eager_skolem, args.max_generation, args.relevancy, args.forgetful_backtrack);
+    let mut egraph = Egraph::new(context, args.lazy_dt, args.ddsmt, args.eager_skolem, args.max_generation, args.relevancy, args.forgetful_backtrack, args.qi_one_at_a_time, args.qi_new_to_front);
 
     egraph.insert_predecessor(&false_term, None, None, false, None);
     egraph.insert_predecessor(&true_term, None, None, false, None);
