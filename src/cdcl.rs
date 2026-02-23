@@ -42,7 +42,7 @@ pub fn cdcl_decision_procedure(
         egraph,
         disequalities: RefCell::new(vec![]),
         qi_clause_flags: RefCell::new(vec![]),
-        qi_clauses_by_generation: HashMap::new(),
+        qi_instance_data: Vec::new(),
         fixed_literals: DeterministicHashSet::default(),
         proof_tracker: Rc::clone(&proof_tracker), // Clone the Rc reference
         assignments: vec![0, 0],

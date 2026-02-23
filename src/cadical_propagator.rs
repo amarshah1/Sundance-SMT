@@ -41,8 +41,8 @@ pub struct CustomExternalPropagator<'a> {
     pub disequalities: RefCell<Vec<Vec<i32>>>, // might be paying a bit of overhead for RefCell
     /// parallel to disequalities: true = this clause came from QI, false = theory conflict
     pub qi_clause_flags: RefCell<Vec<bool>>,
-    /// for forgetful backtrack: QI clause literals grouped by QI generation
-    pub qi_clauses_by_generation: std::collections::HashMap<u32, Vec<Vec<i32>>>,
+    /// for forgetful backtrack: per QI clause (decision_level, clause_literals, term_uids)
+    pub qi_instance_data: Vec<(usize, Vec<i32>, Vec<u64>)>,
     pub fixed_literals: DeterministicHashSet<i32>,
     pub proof_tracker: Rc<RefCell<SMTProofTracker>>,
     pub assignments: Vec<i32>, // maps abs(literal) -> (decision level assigned + 1) * sgn(literal)
@@ -457,36 +457,37 @@ impl<'a> ExternalPropagator for CustomExternalPropagator<'a> {
         // forgetful backtrack: delete QI-created terms and clauses that are no longer useful
         if self.egraph.forgetful_backtrack {
             // assignments have already been reset above; literals still assigned are at level ≤ target
-            // a generation is "protected" if any of its QI clause literals are still assigned
-            let mut protected_generations = std::collections::HashSet::<u32>::new();
-            let mut generations_to_check: Vec<u32> = Vec::new();
-            for (generation, generation_level) in self.egraph.qi_generation_to_level.iter() {
-                if *generation_level > level {
-                    generations_to_check.push(*generation);
+            // per-clause protection: a clause is protected if any of its literals is still assigned
+            let mut protected_terms: std::collections::HashSet<u64> = std::collections::HashSet::new();
+            let mut maybe_delete: std::collections::HashSet<u64> = std::collections::HashSet::new();
+            let mut indices_to_remove: Vec<usize> = Vec::new();
+
+            for (idx, (inst_level, clause, term_uids)) in self.qi_instance_data.iter().enumerate() {
+                if *inst_level <= level {
+                    // this instance was created at or before the backtrack target — never delete
+                    continue;
                 }
-            }
-            for generation in &generations_to_check {
-                if let Some(clauses) = self.qi_clauses_by_generation.get(generation) {
-                    'outer: for clause in clauses {
-                        for lit in clause {
-                            let abs_lit = lit.abs() as usize;
-                            if abs_lit < self.assignments.len() && self.assignments[abs_lit] != 0 {
-                                protected_generations.insert(*generation);
-                                break 'outer;
-                            }
-                        }
-                    }
+                let is_protected = clause.iter().any(|lit| {
+                    let abs_lit = lit.unsigned_abs() as usize;
+                    abs_lit < self.assignments.len() && self.assignments[abs_lit] != 0
+                });
+                if is_protected {
+                    protected_terms.extend(term_uids.iter().copied());
+                } else {
+                    maybe_delete.extend(term_uids.iter().copied());
+                    indices_to_remove.push(idx);
                 }
             }
 
-            // remove non-protected QI-created terms from the egraph
-            self.egraph.forget_qi_terms_above_level(level, &protected_generations);
+            // terms_to_delete = maybe_delete minus protected (terms shared with a protected clause stay)
+            let terms_to_delete: std::collections::HashSet<u64> =
+                maybe_delete.difference(&protected_terms).copied().collect();
 
-            // drop qi_clauses_by_generation entries that were cleaned up
-            for generation in &generations_to_check {
-                if !protected_generations.contains(generation) {
-                    self.qi_clauses_by_generation.remove(generation);
-                }
+            self.egraph.forget_qi_terms(&terms_to_delete);
+
+            // remove unprotected entries from qi_instance_data (reverse order preserves indices)
+            for idx in indices_to_remove.into_iter().rev() {
+                self.qi_instance_data.remove(idx);
             }
         }
 
@@ -637,8 +638,6 @@ impl<'a> ExternalPropagator for CustomExternalPropagator<'a> {
         }
 
         debug_println!(11, 0, "Starting quantifier instantiations");
-        // record generation-to-level mapping before instantiation increments the generation
-        let gen_before = self.egraph.current_generation;
         let qi_level = self.decision_level;
 
         let quantifier_instantiations = instantiate_quantifiers(
@@ -653,12 +652,6 @@ impl<'a> ExternalPropagator for CustomExternalPropagator<'a> {
             "Found quantifier instantiations {:?}",
             quantifier_instantiations
         );
-
-        // record the new generation created by this QI round for forgetful backtrack
-        let gen_after = self.egraph.current_generation;
-        if self.egraph.forgetful_backtrack && gen_after > gen_before {
-            self.egraph.qi_generation_to_level.insert(gen_after, qi_level);
-        }
 
         // Quantifier instantiation calls cnf_tseitin on instantiated terms,
         // which appends new Tseitin rules to cnf_cache.relevancy_rules.
@@ -679,36 +672,28 @@ impl<'a> ExternalPropagator for CustomExternalPropagator<'a> {
         // adds clauses of the formal (or (not (forall ....)) (INSTANTIATED PART)) same as (forall ...) => INSTANTIATED PART
         for instantiation in &quantifier_instantiations {
             match instantiation {
-                Instantiation { clause, .. } => {
+                Instantiation { clause, term_uids } => {
                     for lit in clause {
                         self.add_observed_variable(*lit);
                         self.add_lit_to_proof_tracker(*lit);
                     }
 
                     self.disequalities.borrow_mut().push(clause.clone());
-                    // mark as QI clause and record for forgetful backtrack
                     self.qi_clause_flags.borrow_mut().push(true);
-                    if self.egraph.forgetful_backtrack && gen_after > gen_before {
-                        self.qi_clauses_by_generation
-                            .entry(gen_after)
-                            .or_default()
-                            .push(clause.clone());
+                    if self.egraph.forgetful_backtrack {
+                        self.qi_instance_data.push((qi_level, clause.clone(), term_uids.clone()));
                     }
                 }
-                Skolemization { clause } => {
+                Skolemization { clause, term_uids } => {
                     for lit in clause {
                         self.add_observed_variable(*lit);
                         self.add_lit_to_proof_tracker(*lit);
                     }
 
                     self.disequalities.borrow_mut().push(clause.clone());
-                    // mark as QI clause and record for forgetful backtrack
                     self.qi_clause_flags.borrow_mut().push(true);
-                    if self.egraph.forgetful_backtrack && gen_after > gen_before {
-                        self.qi_clauses_by_generation
-                            .entry(gen_after)
-                            .or_default()
-                            .push(clause.clone());
+                    if self.egraph.forgetful_backtrack {
+                        self.qi_instance_data.push((qi_level, clause.clone(), term_uids.clone()));
                     }
                 }
             }

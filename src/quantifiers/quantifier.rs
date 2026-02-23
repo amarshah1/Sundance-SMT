@@ -21,8 +21,8 @@ use yaspar_ir::ast::{Attribute, FetchSort, HasArena, LetElim, ObjectAllocatorExt
 
 #[derive(Debug, Clone)]
 pub enum QuantifierInstance {
-    Instantiation { clause: Vec<i32> },
-    Skolemization { clause: Vec<i32> },
+    Instantiation { clause: Vec<i32>, term_uids: Vec<u64> },
+    Skolemization { clause: Vec<i32>, term_uids: Vec<u64> },
 }
 
 /// Returns a list of quantifier instantiation given the assignment and current state of the egraph
@@ -137,9 +137,15 @@ pub fn instantiate_quantifiers(
             );
 
             // note that from_quantifier is true here
+            if egraph.forgetful_backtrack { egraph.qi_pending_term_uids.clear(); }
             egraph.insert_predecessor(&skolemized_quantifier, None, None, true, None);
             let clauses = skolemized_quantifier.cnf_tseitin(egraph);
             egraph.relevancy.flush_rules(&mut egraph.cnf_cache.relevancy_rules);
+            let skolem_term_uids: Vec<u64> = if egraph.forgetful_backtrack {
+                std::mem::take(&mut egraph.qi_pending_term_uids)
+            } else {
+                vec![]
+            };
 
             // learning (not \forall P(x)) => P(c)
             // equivalent to \forall P(x) \/ P(c)
@@ -169,6 +175,7 @@ pub fn instantiate_quantifiers(
             // this is the only skolemization clause we need to assume in the proof. Everything else is just a theory literal
             instantiations.push(QuantifierInstance::Skolemization {
                 clause: quantifier_implies_skolemization_clause,
+                term_uids: skolem_term_uids.clone(),
             });
 
             // todo: ideally, we want a whole term that is implied via skolemization and is assumed to be true and then everything else can still be checked
@@ -183,13 +190,13 @@ pub fn instantiate_quantifiers(
                 // } else {
                 //     proof_tracker.borrow_mut().add_skolem_clause(clause.clone(), None);
                 // }
-                instantiations.push(QuantifierInstance::Skolemization { clause })
+                instantiations.push(QuantifierInstance::Skolemization { clause, term_uids: skolem_term_uids.clone() })
             }
 
             for mut clause in additional_constraints {
                 clause.push(-skolemized_term_literal);
                 // proof_tracker.borrow_mut().add_skolem_clause(clause.clone(), None);
-                instantiations.push(QuantifierInstance::Skolemization { clause })
+                instantiations.push(QuantifierInstance::Skolemization { clause, term_uids: skolem_term_uids.clone() })
             }
         }
 
@@ -340,10 +347,16 @@ pub fn instantiate_quantifiers(
                 // this might lead to weirdness when you have equality of booleans not being represented in egraph
                 // but it should be fine. This is necessary becasue we need to look up lits
                 // todo: also might be less efficient as well because we are losing structure from original formula in the egraph
+                if egraph.forgetful_backtrack { egraph.qi_pending_term_uids.clear(); }
                 egraph.insert_predecessor(&nnf_term, None, None, true, None);
 
                 let cnf_term = nnf_term.cnf_tseitin(egraph);
                 egraph.relevancy.flush_rules(&mut egraph.cnf_cache.relevancy_rules);
+                let inst_term_uids: Vec<u64> = if egraph.forgetful_backtrack {
+                    std::mem::take(&mut egraph.qi_pending_term_uids)
+                } else {
+                    vec![]
+                };
                 debug_println!(28, 0, "We have the cnf term {:?} with lit {}", cnf_term, egraph.get_lit_from_term(&nnf_term));
 
                 let mut clauses: Vec<_> = cnf_term
@@ -383,7 +396,7 @@ pub fn instantiate_quantifiers(
                 // activate_bits(&t, 0, egraph);
 
                 for clause in clauses {
-                    let instantiation = QuantifierInstance::Instantiation { clause };
+                    let instantiation = QuantifierInstance::Instantiation { clause, term_uids: inst_term_uids.clone() };
                     instantiations.push(instantiation); // TODO: I would prefer to push t.uid() here, but it seems like the uid is not getting adding to the terms list
                 }
             }
